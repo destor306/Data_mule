@@ -8,7 +8,9 @@ from playsound import playsound
 
 beep1 = './assets/beep-01a.wav'
 beep2 = './assets/beep-05.wav'
-
+come_get_it = './assets/come_get_it.wav'
+no_files = './assets/car_horn_x.wav'
+good_to_go = './assets/toot2_x.wav'
 # Function to play a sound
 
 
@@ -25,22 +27,24 @@ logging.basicConfig(filename=client_log_file,
                     level=logging.INFO, format='%(asctime)s - %(message)s')
 
 
-# Define the configurations for both FTP servers
-ftp_config_1 = {
-    "network_name": 'eduroam',
-    "ftp_server": '10.226.84.227',
-    "username": 'FTPserver',
-    "password": '1234',
-    "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
-}
-
-ftp_config_2 = {
-    "network_name": 'eduroam',
-    "ftp_server": '10.226.121.80',
-    "username": 'ftp-user2',
-    "password": '1234',
-    "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
-}
+# Example FTP configurations (you can add more configurations)
+ftp_configs = [
+    {
+        "network_name": 'Yoo',
+        "ftp_server": '192.168.1.218',
+        "username": 'ftp-user',
+        "password": '1234',
+        "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+    },
+    {
+        "network_name": 'Yoo',
+        "ftp_server": '10.226.121.80',
+        "username": 'ftp-user2',
+        "password": '1234',
+        "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+    },
+    # Add more configurations as needed
+]
 
 
 def delete_files(ftp, file_list):
@@ -80,6 +84,10 @@ def download_files(ftp, username, local_directory, downloaded_files, log_file):
     if not os.path.exists(local_directory):
         os.makedirs(local_directory)
 
+    # Check if there are files to pick up (excluding .log files) before playing the sound
+    if any(not file.endswith('.log') for file in file_list):
+        play_notification_sound(come_get_it)
+
     for remote_filename in file_list:
         if remote_filename not in downloaded_files:
             # Check the file extension and skip downloading log files
@@ -101,152 +109,106 @@ def download_files(ftp, username, local_directory, downloaded_files, log_file):
 def upload_files(ftp, local_directory, uploading_files):
     local_files = os.listdir(local_directory)
 
-    for local_filename in local_files:
-        if local_filename not in uploading_files:
-            if not local_filename.endswith(".log"):
-                local_filepath = os.path.join(local_directory, local_filename)
-                with open(local_filepath, 'rb') as local_file:
-                    ftp.storbinary(f'STOR {local_filename}', local_file)
+    # Check if there are files to upload before proceeding
+    if local_files:
+        for local_filename in local_files:
+            if local_filename not in uploading_files:
+                if not local_filename.endswith(".log"):
+                    local_filepath = os.path.join(
+                        local_directory, local_filename)
+                    with open(local_filepath, 'rb') as local_file:
+                        ftp.storbinary(f'STOR {local_filename}', local_file)
 
-                # Log the action on the client
-                log_message = f'From Truck {local_directory} upload {local_filename} to {ftp.host}'
-                logging.info(log_message)
+                    # Log the action on the client
+                    log_message = f'From Truck {local_directory} upload {local_filename} to {ftp.host}'
+                    logging.info(log_message)
 
-                print(f'Uploaded {local_filename} to the FTP server')
-                uploading_files.append(local_filename)
-    logging.shutdown()
+                    print(f'Uploaded {local_filename} to the FTP server')
+                    uploading_files.append(local_filename)
+        logging.shutdown()
+
+    else:
+        print("No files to upload.")
 
 
 def upload_log_files(ftp, local_directory):
     local_files = os.listdir(local_directory)
 
-    for local_filename in local_files:
-        if local_filename.endswith(".log"):
-            local_filepath = os.path.join(local_directory, local_filename)
-            with open(local_filepath, 'rb') as local_file:
-                ftp.storbinary(f'STOR {local_filename}', local_file)
+    if local_files:
+        for local_filename in local_files:
+            if local_filename.endswith(".log"):
+                local_filepath = os.path.join(local_directory, local_filename)
+                with open(local_filepath, 'rb') as local_file:
+                    ftp.storbinary(f'STOR {local_filename}', local_file)
 
-            # Log the action on the client
-            log_message = f'From User {local_directory} upload {local_filename} to {ftp.host}'
-            logging.info(log_message)
+                # Log the action on the client
+                log_message = f'From User {local_directory} upload {local_filename} to {ftp.host}'
+                logging.info(log_message)
 
-            print(f'Uploaded {local_filename} to the FTP server')
-    logging.shutdown()
-
-
-while True:
-    # Check if connected to server_1
-    if is_connected_to_wifi_network(ftp_config_1["network_name"]):
-        try:
-            # Connect to server_1 with a limited number of retries
-            max_retries = 3
-            retry_interval = 5
-            retry_count = 0
-
-            while retry_count < max_retries:
-                try:
-                    ftp1 = FTP()
-                    ftp1.connect(ftp_config_1["ftp_server"])
-                    ftp1.login(ftp_config_1["username"],
-                               ftp_config_1["password"])
-                    print(
-                        f'Connected to {ftp_config_1["network_name"]} as {ftp_config_1["username"]}')
-                    break  # Break the loop if the connection is successful
-                except TimeoutError:
-                    # Handle the timeout error (server not available)
-                    retry_count += 1
-                    print(
-                        f'Server not available. Retrying... (Attempt {retry_count}/{max_retries})')
-                    time.sleep(retry_interval)
-            else:
-                print(
-                    f'Failed to connect to {ftp_config_1["network_name"]} after {max_retries} attempts. Exiting...')
-                # You can choose to exit the script or take other actions here
-
-            downloaded_files = []  # Initialize the list for downloaded files
-            print(
-                f'Connected to {ftp_config_1["network_name"]} as {ftp_config_1["username"]}. Downloading files.')
-
-            # Download files from server_1
-            download_files(
-                ftp1, ftp_config_1["username"], ftp_config_1["local_directory"], downloaded_files, client_log_file)
-
-            # upload_files(ftp1, ftp_config_1["local_directory"])
-            # # Remove uploaded files from the local directory
-            # delete_local_files(ftp_config_1["local_directory"])
-
-            # Play a sound to indicate successful transfer
-            if downloaded_files:
-                play_notification_sound(beep1)
-                # Upload files to server_1
-                upload_log_files(ftp1, ftp_config_1["local_directory"])
-
-            delete_files(ftp1, downloaded_files)
-
-            # Close the connection to server_1
-            ftp1.quit()
-        except Exception as e:
-            print(f"Error downloading from FTP server 1: {str(e)}")
+                print(f'Uploaded {local_filename} to the FTP server')
+        logging.shutdown()
+        play_notification_sound(good_to_go)
     else:
-        print(f"Not connected to {ftp_config_1['network_name']}. Exiting...")
-        # You can choose to exit the script or take other actions here
+        print("No files to upload")
 
-    # Check if connected to server_2
-    if is_connected_to_wifi_network(ftp_config_2["network_name"]):
+
+def connect_to_ftp_server(ftp_config):
+
+    if is_connected_to_wifi_network(ftp_config["network_name"]):
         try:
-            # Initialize the list for local files
-            local_files = os.listdir(ftp_config_2["local_directory"])
-
-            # Connect to server_2 with a limited number of retries
             max_retries = 3
             retry_interval = 5
-            retry_count = 0
 
+            retry_count = 0
             while retry_count < max_retries:
                 try:
-                    ftp2 = FTP()
-                    ftp2.connect(ftp_config_2["ftp_server"])
-                    ftp2.login(ftp_config_2["username"],
-                               ftp_config_2["password"])
+                    ftp = FTP()
+                    ftp.connect(ftp_config["ftp_server"])
+                    ftp.login(ftp_config["username"], ftp_config["password"])
                     print(
-                        f'Connected to {ftp_config_2["network_name"]} as {ftp_config_2["username"]}')
-                    break  # Break the loop if the connection is successful
+                        f'Truck arrived at {ftp_config["network_name"]} (FTP server)')
+
+                    # Check for files to download
+                    downloaded_files = []
+                    print(f'Truck checking for files to pick up...')
+                    download_files(
+                        ftp, ftp_config["username"], ftp_config["local_directory"], downloaded_files, client_log_file)
+
+                    if downloaded_files:
+                        print(f'Truck found files to pick up!')
+                        upload_log_files(ftp, ftp_config["local_directory"])
+
+                    delete_files(ftp, downloaded_files)
+                    ftp.quit()
+                    break  # Break the loop if the connection and file check are successful
                 except TimeoutError:
-                    # Handle the timeout error (server not available)
                     retry_count += 1
                     print(
-                        f'Server not available. Retrying... (Attempt {retry_count}/{max_retries})')
+                        f'Truck waiting at {ftp_config["network_name"]}... (Attempt {retry_count}/{max_retries})')
                     time.sleep(retry_interval)
             else:
                 print(
-                    f'Failed to connect to {ftp_config_2["network_name"]} after {max_retries} attempts. Exiting...')
-                # You can choose to exit the script or take other actions here
-
-            uploading_files = []  # Initialize the list for downloaded files
-            print(
-                f'Connected to {ftp_config_2["network_name"]} as {ftp_config_2["username"]}. Uploading files.')
-
-            # Upload files to server_2
-            upload_files(
-                ftp2, ftp_config_2["local_directory"], uploading_files)
-
-            # Play a sound to indicate successful transfer
-            if uploading_files:
-                play_notification_sound(beep1)
-                upload_log_files(ftp2, ftp_config_2["local_directory"])
-
-            # Remove uploaded files from the local directory
-            for local_filename in local_files:
-                if not local_filename.endswith(".log"):
-                    local_filepath = os.path.join(
-                        ftp_config_2["local_directory"], local_filename)
-                    os.remove(local_filepath)
-
-            # Close the connection to server_2
-            ftp2.quit()
+                    f'Truck unable to connect to {ftp_config["network_name"]} after {max_retries} attempts. Moving on...')
+                play_notification_sound(no_files)
+                play_notification_sound(no_files)
 
         except Exception as e:
-            print(f"Error downloading from FTP server 2: {str(e)}")
+            print(
+                f"Error with FTP server {ftp_config['network_name']}: {str(e)}")
+    else:
+        print(
+            f'Truck not connected to {ftp_config["network_name"]}. Moving on...')
 
-    # Sleep before checking again
+
+# Truck driver's routine
+while True:
+    files_downloaded = False  # Initialize a variable to track whether files are downloaded
+
+    for ftp_config in ftp_configs:
+        connect_to_ftp_server(ftp_config)
+
+    # Truck driver takes a break before checking the next village
     time.sleep(5)
+
+
+# End of the while loop
