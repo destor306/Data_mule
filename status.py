@@ -27,7 +27,8 @@ def create_tables():
             Sender TEXT,
             DestinationVillage TEXT,
             DestinationUser TEXT,
-            Status TEXT
+            Status TEXT,
+            Sizeby_MB INTEGER  -- Add this column for file size
         )
     ''')
     conn.commit()
@@ -99,6 +100,20 @@ def clear_table(table_name):
     conn.close()
 
 
+def update_file_size(filename, file_size):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+
+    # Update the FileStatuses table with the new file size
+    cursor.execute('''
+        UPDATE FileStatuses
+        SET Sizeby_MB = ?
+        WHERE LOWER(Filename) = LOWER(?)
+    ''', (file_size, filename))
+
+    conn.commit()
+    conn.close()
+
 # Function to get file statuses from the log file and update the database
 
 
@@ -166,10 +181,14 @@ def update_file_statuses(log_file_path, directory_path):
             return "Other (Gray)"
 
     with open(log_file_path, 'r') as log_file:
-        download_pattern = re.compile(
-            r"From (.+?) download (.+?) to Truck (.+)")
-        upload_pattern = re.compile(r"From (.+?) upload (.+?) to (.+)")
+        import re
 
+        download_pattern = re.compile(
+            r"From (.+?) (.+?) download (.+?) to Truck (.+)")
+        upload_pattern = re.compile(
+            r"From (.+?) upload (.+?) (\d+)MB to (.+?) (.+)")
+
+        file_size_pattern = re.compile(r".+? (\d+)MB ")
         source_user = None  # Variable to store the source user during processing
 
         for line in log_file:
@@ -182,28 +201,43 @@ def update_file_statuses(log_file_path, directory_path):
             status = get_status(line)
             download_match = download_pattern.search(line)
             upload_match = upload_pattern.search(line)
+            size_match = file_size_pattern.search(line)
+
             # update_file_status(filename, source_village, sender, destination_user, status):
             if download_match:
-                uploader, filename, destination = download_match.groups()
+                source, additional_info, filename, destination = download_match.groups()
 
-                # Split the filename by underscore and take the second part (receiver)
+                # Extract relevant information from the additional_info group
                 sender = filename.split('_')[0]
                 receiver = filename.split('_')[1]
                 destination_village, destination_user = destination.split('_')
                 destination_user = destination_user.split('.')[0]
+
+                # Use source_user if it is not captured in the log message
+                source_user = source_user or source
+
                 update_file_status(
-                    filename, uploader, sender, destination_user, status)
+                    filename, source_user, sender, destination_user, status)
             if upload_match:
-                uploader, filename, destination = upload_match.groups()
-                # print(uploader, filename, destination)
-                # Split the filename by underscore and take the second part (receiver)
+                source, filename, file_size, destination_info, destination = upload_match.groups()
+
+                # Extract relevant information from the filename and destination_info groups
                 sender = filename.split('_')[0]
                 receiver = filename.split('_')[1]
                 receiver = receiver.split('.')[0]
 
-                update_file_status(
-                    filename, uploader, sender, receiver, status)
+                # Use source_user if it is not captured in the log message
+                source_user = source_user or source
 
+                update_file_status(
+                    filename, source_user, sender, receiver, status)
+                update_file_size(filename, file_size)
+            if size_match:
+                file_size = size_match.group(1)
+                update_file_size(filename, file_size)
+
+                # Do something with the file size (e.g., update in the database)
+                # print(f"File Size: {file_size} MB")
     # List files in the directory
     files_in_directory = [f for f in os.listdir(
         directory_path) if os.path.isfile(os.path.join(directory_path, f))]
@@ -221,13 +255,15 @@ log_file_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP\client.log'
 directory_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP'
 
 # Village A adds new users
-add_user_account("Alice", "ftp-villageA", "alice@email.com")
-add_user_account("Bob", "ftp-villageA", "bob@email.com")
+add_user_account("Alice", "villageB", "alice@email.com")
+add_user_account("Bob", "villageB", "bob@email.com")
 
 # Village B adds new users
-add_user_account("Jason", "ftp-user", "jason@email.com")
-add_user_account("Ellen", "ftp-user", "ellen@email.com")
-add_user_account("Ace", "ftp-user", "ace@email.com")
+add_user_account("Jason", "villageA", "jason@email.com")
+add_user_account("Ellen", "villageA", "ellen@email.com")
+add_user_account("Ace", "villageA", "ace@email.com")
+
+add_user_account("Ken", "villageC", "ken@email.com")
 
 
 update_file_statuses(log_file_path, directory_path)

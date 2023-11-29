@@ -8,5 +8,10 @@
     "password": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
     "phone": "123-123-1234",
     "address": "Orlando"
+  },
+  "yuva": {
+    "password": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+    "phone": "1234",
+    "address": "villageA"
   }
 }
