@@ -32,47 +32,42 @@ current_ftp_server = None
 # Example FTP configurations (you can add more configurations)
 ftp_configs = [
     {
-        "network_name": 'Yoo',
-        "ftp_server": '192.168.1.218',
+        "network_name": 'eduroam',      # Yuva's
+        "ftp_server": '10.224.83.108',
         "username": 'villageA',
         "password": '1234',
         "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
     },
     {
-        "network_name": 'Yoo',
-        "ftp_server": '192.168.1.54',
+        "network_name": 'eduroam',      # martin's
+        "ftp_server": '10.226.86.119',
         "username": 'villageB',
         "password": '1234',
         "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
     },
+    {
+        "network_name": 'eduroam',      # inas'
+        "ftp_server": '10.226.93.56',
+        "username": 'villageD',
+        "password": '1234',
+        "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+    }
+    # {
+    #     "network_name": 'Yoo',
+    #     "ftp_server": '192.168.1.218',
+    #     "username": 'villageA',
+    #     "password": '1234',
+    #     "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+    # },
+    # {
+    #     "network_name": 'Yoo',
+    #     "ftp_server": '192.168.1.54',
+    #     "username": 'villageB',
+    #     "password": '1234',
+    #     "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+    # },
     # Add more configurations as needed
 ]
-
-
-# def get_next_delivery():
-#     conn = sqlite3.connect('file_delivery.db')
-#     cursor = conn.cursor()
-
-#     # Example query to get the next file to be delivered
-#     cursor.execute(
-#         "SELECT filename, SourceVillage, DestinationVillage FROM FileStatuses WHERE Status = 'In Transit (Yellow)' LIMIT 1;")
-#     result = cursor.fetchone()
-
-#     conn.close()
-#     # Returns a tuple (filename, SourceVillage, DestinationVillage)
-#     return result
-
-
-# def mark_as_delivered(filename):
-#     conn = sqlite3.connect('file_delivery.db')
-#     cursor = conn.cursor()
-
-#     # Example query to mark the file as delivered
-#     cursor.execute(
-#         "UPDATE FileStatuses SET Status = 'Delivered (Green)' WHERE filename = ?;", (filename,))
-
-#     conn.commit()
-#     conn.close()
 
 
 def delete_files(ftp, downloaded_files, upload_files):
@@ -305,7 +300,7 @@ while True:
         # Run the status script to update FileStatuses
         subprocess.run(['python', python_script_path])
         # Truck driver takes a break before checking the next village
-        time.sleep(20)
+        time.sleep(30)
 
 
 # End of the while loop

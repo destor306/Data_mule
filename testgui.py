@@ -3,24 +3,34 @@ from tkinter import ttk, filedialog
 import json
 import hashlib
 import os
+import shutil
+import sqlite3
 
 
 class App:
 
     def load_login_info(self):
-        try:
-            with open("login_info.json", "r") as file:
-                return json.load(file)
-        except FileNotFoundError:
-            return {}
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT username, password FROM users")
+        data = cursor.fetchall()
+        print(data)
+        login_info = {username: password for username, password in data}
+        self.conn.commit()
+        self.conn.close()
+        return login_info
+
+    def connect_to_db(self):
+        self.conn = sqlite3.connect('user_info.db')
 
     def __init__(self, root):
         self.root = root
         self.root.title("File Storage App")
-
+        self.connect_to_db()
+        self.create_users_table()
         # Set the window size and center it
-        window_width = 600
-        window_height = 400
+        window_width = 800
+        window_height = 600
         screen_width = root.winfo_screenwidth()
         screen_height = root.winfo_screenheight()
         x_coordinate = (screen_width - window_width) // 2
@@ -32,7 +42,7 @@ class App:
         # Current user
         self.current_user = None
 
-        # Load login information from the JSON file
+        # Load login information from the db file
         self.login_info = self.load_login_info()
 
         # Login Page
@@ -63,6 +73,21 @@ class App:
 
         # Initially, show the login page
         self.show_login_page()
+
+    def create_users_table(self):
+        # Create a table if it doesn't exist
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password TEXT,
+                phone TEXT,
+                address TEXT
+            )
+        ''')
+        self.conn.commit()
+        self.conn.close()
 
     def create_login_page(self):
         self.login_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -182,9 +207,15 @@ class App:
             self.dropbox_frame, text="Friend List", command=self.show_friend_list_page)
         self.received_files_button = ttk.Button(
             self.dropbox_frame, text="Received Files", command=self.show_download_files_page)
+        self.stat_button = ttk.Button(
+            self.dropbox_frame, text="Status Files", command=self.show_status_files_page)
+        self.delete_account_button = ttk.Button(
+            self.dropbox_frame, text="Delete Account", command=self.confirm_delete_account)
+        self.logout_button = ttk.Button(
+            self.dropbox_frame, text="Log Out", command=self.log_out)
 
         self.dropbox_frame.columnconfigure(0, weight=1)
-        for i in range(7):
+        for i in range(9):
             self.dropbox_frame.rowconfigure(i, weight=1)
 
         padding_x = 20
@@ -202,6 +233,48 @@ class App:
             row=5, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
         self.received_files_button.grid(
             row=6, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
+        self.stat_button.grid(
+            row=7, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
+        self.delete_account_button.grid(
+            row=8, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
+        self.logout_button.grid(
+            row=9, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
+
+    def log_out(self):
+        # Implement the logic to log out
+        # For example, reset the current_user attribute and show the login page
+        self.current_user = None
+        self.show_login_page()
+
+    def confirm_delete_account(self):
+        confirmation_window = tk.Toplevel(self.root)
+        confirmation_window.title("Confirmation")
+        confirmation_window.geometry("300x150")
+
+        confirmation_label = ttk.Label(
+            confirmation_window, text="Are you sure you want to delete your account?")
+        confirmation_label.pack(pady=20)
+
+        confirm_button = ttk.Button(
+            confirmation_window, text="Confirm", command=lambda: self.delete_account(confirmation_window))
+        confirm_button.pack(side=tk.LEFT, padx=10)
+
+        cancel_button = ttk.Button(
+            confirmation_window, text="Cancel", command=confirmation_window.destroy)
+        cancel_button.pack(side=tk.RIGHT, padx=10)
+
+    def delete_account(self, confirmation_window):
+        current_user = self.current_user
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM users WHERE username = ?", (current_user,))
+        self.conn.commit()
+
+        # After deleting the account, navigate back to the login page
+        self.show_login_page()
+        # Destroy the confirmation window
+        confirmation_window.destroy()
+        self.conn.close()
 
     def add_friend(self):
         new_friend = self.new_friend_entry.get()
@@ -295,8 +368,7 @@ class App:
             return {}
 
     def save_login_info(self):
-        with open("login_info.json", "w") as file:
-            json.dump(self.login_info, file, indent=2)
+        return self.current_user
 
     def save_friend_list(self):
         with open("friend_list.json", "w") as file:
@@ -339,12 +411,24 @@ class App:
         self.download_files_frame.grid()
         self.populate_received_files_listbox()
 
+    def show_status_files_page(self):
+        self.login_frame.grid_remove()
+        self.registration_frame.grid_remove()
+        self.dropbox_frame.grid_remove()
+        self.friend_list_frame.grid_remove()
+
+    def populate_user_list(self):
+        # Replace this with your logic to fetch and populate the user list
+        user_list = ["User1", "User2", "User3", "User4"]
+        for user in user_list:
+            self.user_listbox.insert(tk.END, user)
+
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
-
+        print("self.login_info", self.login_info.get(username))
         # Check if the username exists and the password is correct
-        if username in self.login_info and self.verify_password(password, self.login_info[username]):
+        if username in self.login_info and self.verify_password(password, self.login_info.get(username)):
             self.current_user = username
             if username not in self.friend_list:
                 self.friend_list[username] = []
@@ -356,6 +440,9 @@ class App:
             error_label.grid(row=4, column=1, columnspan=2, pady=5)
             self.login_frame.after(2000, error_label.grid_forget)
 
+        self.username_entry.delete(0, tk.END)
+        self.password_entry.delete(0, tk.END)
+
     def verify_password(self, plain_password, stored_info):
         # For simplicity, let's use a basic hash function (sha256) for password verification
         hashed_input_password = hashlib.sha256(
@@ -363,32 +450,49 @@ class App:
 
         # Print the hashed input password and stored hashed password for debugging
         print("Hashed Input Password:", hashed_input_password)
-        print("Stored Hashed Password:", stored_info['password'])
+        print("Stored Hashed Password:", stored_info)
 
         # Compare the hashed input password with the stored hashed password
-        return hashed_input_password == stored_info['password']
+        return hashed_input_password == stored_info
 
     def register(self):
         new_username = self.new_username_entry.get()
         new_password = self.new_password_entry.get()
         phone_number = self.phone_entry.get()
         address = self.address_entry.get()
+        self.connect_to_db()
+        cursor = self.conn.cursor()
 
         if new_username in self.login_info:
             error_label = ttk.Label(
-                self.registration_frame, text="Username already exists", foreground="red")
+                self.registration_frame, text="Username already exists try different name", foreground="red")
             error_label.grid(row=7, column=1, columnspan=2, pady=5)
             self.registration_frame.after(2000, error_label.grid_forget)
         else:
             # Hash the password and store the new account information
             hashed_password = hashlib.sha256(new_password.encode()).hexdigest()
-            self.login_info[new_username] = {
-                'password': hashed_password,
-                'phone': phone_number,
-                'address': address
-            }
-            self.save_login_info()
+
+            # Insert user data into the database
+            cursor.execute('''
+                INSERT INTO users (username, password, phone, address)
+                VALUES (?, ?, ?, ?)
+            ''', (new_username, hashed_password, phone_number, address))
+
+            self.conn.commit()
             self.show_login_page()
+
+            # Clear input fields after successful registration
+            self.new_username_entry.delete(0, tk.END)
+            self.new_password_entry.delete(0, tk.END)
+            self.phone_entry.delete(0, tk.END)
+            self.address_entry.delete(0, tk.END)
+        # Load login information from the db file
+        self.login_info = self.load_login_info()
+        self.conn.close()
+
+    def __del__(self):
+        # Close the database connection when the object is deleted
+        self.conn.close()
 
     def load_uploaded_files_list(self):
         try:
@@ -402,18 +506,37 @@ class App:
         file_path = filedialog.askopenfilename()
 
         if file_path and selected_friend:
+            # Get the current user name
+            current_user_name = self.current_user
+
+            # Extract the file name from the original path
+            original_file_name = os.path.basename(file_path)
+
+            # Format the new file name based on the specified pattern
+            formatted_file_name = f"{current_user_name}_{selected_friend}_{original_file_name}"
+
             uploaded_file_info = {
                 'friend': selected_friend,
-                'file_name': os.path.basename(file_path)
+                'file_name': formatted_file_name
             }
 
-            if self.current_user not in self.uploaded_files:
-                self.uploaded_files[self.current_user] = []
-            self.uploaded_files[self.current_user].append(uploaded_file_info)
+            if current_user_name not in self.uploaded_files:
+                self.uploaded_files[current_user_name] = []
+            self.uploaded_files[current_user_name].append(uploaded_file_info)
             self.save_uploaded_files()
             self.populate_file_listbox()
 
-            # TODO: Upload the file to the FTP server to the selected friend
+            # Copy the file to the destination folder.
+            destination_folder = r'C:\Users\hyunj\OneDrive\Desktop\FTP'
+            destination_path = os.path.join(
+                destination_folder, formatted_file_name)
+
+            try:
+                shutil.copy(file_path, destination_path)
+                print(
+                    f"File '{formatted_file_name}' copied successfully to {destination_folder}")
+            except Exception as e:
+                print(f"Error copying file: {e}")
 
         else:
             error_label = ttk.Label(
@@ -457,8 +580,36 @@ class App:
         return selected_friend
 
     def download_files(self):
-        # TODO: Download all files from the FTP server sent to the current user
-        pass
+        # FTP directory
+        ftp_directory = r'C:\Users\hyunj\OneDrive\Desktop\FTP'
+
+        # Get the current user name
+        current_user_name = self.current_user
+
+        # Destination folder on the desktop for the current user
+        destination_folder = os.path.join(
+            r'C:\Users\hyunj\OneDrive\Desktop', current_user_name)
+
+        # Create the destination folder if it doesn't exist
+        os.makedirs(destination_folder, exist_ok=True)
+
+        # Iterate through files in the FTP directory
+        for filename in os.listdir(ftp_directory):
+            # Split the filename into parts using '_' as a separator
+            parts = filename.split('_')
+
+            # Check if the current user's name is the receiver
+            if len(parts) == 3 and parts[1] == current_user_name:
+                source_path = os.path.join(ftp_directory, filename)
+                destination_path = os.path.join(destination_folder, filename)
+
+                try:
+                    # Copy the file to the current user's desktop folder
+                    shutil.copy(source_path, destination_path)
+                    print(
+                        f"File '{filename}' downloaded successfully to {destination_folder}")
+                except Exception as e:
+                    print(f"Error downloading file: {e}")
 
     def populate_received_files_listbox(self):
         self.received_files_listbox.delete(0, tk.END)

@@ -28,7 +28,8 @@ def create_tables():
             DestinationVillage TEXT,
             DestinationUser TEXT,
             Status TEXT,
-            Sizeby_MB INTEGER  -- Add this column for file size
+            Sizeby_MB INTEGER,  -- Add this column for file size
+            Cost INTEGER
         )
     ''')
     conn.commit()
@@ -100,16 +101,22 @@ def clear_table(table_name):
     conn.close()
 
 
+# def add_file_info(filename, status, size):
+#     cost = size / 100  # assuming size is in MB and cost is $1 per 100MB
+#     file_info[filename] = {'status': status, 'size': size, 'cost': cost}
+
+
 def update_file_size(filename, file_size):
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
-
+    cost = round(float(file_size)/100, 2)
     # Update the FileStatuses table with the new file size
     cursor.execute('''
         UPDATE FileStatuses
-        SET Sizeby_MB = ?
+        SET Sizeby_MB = ?,
+        Cost =?
         WHERE LOWER(Filename) = LOWER(?)
-    ''', (file_size, filename))
+    ''', (file_size, cost, filename))
 
     conn.commit()
     conn.close()
@@ -117,68 +124,70 @@ def update_file_size(filename, file_size):
 # Function to get file statuses from the log file and update the database
 
 
+def update_file_status(filename, source_village, sender, destination_user, status):
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    # # Print the value of destination_user for debugging
+    # print(f"Destination User: {destination_user}")
+
+    # Query the UserAccounts table to get the destination village
+    cursor.execute('''
+        SELECT * FROM UserAccounts WHERE LOWER(Username) = LOWER(?)
+    ''', (destination_user,))
+    result = cursor.fetchone()
+    # print(result)
+    destination_village = result[1]
+
+    # Check if the destination user exists in the UserAccounts table
+    if destination_village:
+        # Convert filenames and username to lowercase for case-insensitive comparison
+        filename_lower = filename.lower()
+        sender_lower = sender.lower()
+        source_info = f"from {source_village}"
+        status_message = f"{filename}: {source_info} {sender_lower} -> {destination_village} - {status} (Sender: {sender}, Receiver: {destination_user})"
+        print(status_message)  # Print the status message
+
+        cursor.execute('''
+            SELECT * FROM FileStatuses WHERE Filename = ?
+        ''', (filename_lower,))
+        existing_entry = cursor.fetchone()
+
+        if existing_entry:
+            # Entry exists, update only the Status field
+            cursor.execute('''
+                UPDATE FileStatuses
+                SET Status = ?
+                WHERE Filename = ?
+            ''', (status, filename_lower))
+        else:
+            # Entry doesn't exist, insert a new row
+            cursor.execute('''
+                INSERT INTO FileStatuses (Filename, SourceVillage, Sender, DestinationVillage, DestinationUser, Status, Cost)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (filename_lower, source_village, sender, destination_village, destination_user, status, 0))
+
+    else:
+        # Handle the case where the destination user is not found
+        print(
+            f"Destination user '{destination_user}' not found in UserAccounts table.")
+    conn.commit()
+    conn.close()
+
+
+def get_status(line):
+    if "download" in line:
+        return "In Transit (Yellow)"
+    elif "upload" in line:
+        return "Delivered (Green)"
+    else:
+        return "Other (Gray)"
+
+
 def update_file_statuses(log_file_path, directory_path):
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
 
     file_statuses = {}
-
-    def update_file_status(filename, source_village, sender, destination_user, status):
-        conn = sqlite3.connect(DATABASE_PATH)
-        cursor = conn.cursor()
-        # # Print the value of destination_user for debugging
-        # print(f"Destination User: {destination_user}")
-
-        # Query the UserAccounts table to get the destination village
-        cursor.execute('''
-            SELECT * FROM UserAccounts WHERE LOWER(Username) = LOWER(?)
-        ''', (destination_user,))
-        result = cursor.fetchone()
-        # print(result)
-        destination_village = result[1]
-
-        # Check if the destination user exists in the UserAccounts table
-        if destination_village:
-            # Convert filenames and username to lowercase for case-insensitive comparison
-            filename_lower = filename.lower()
-            sender_lower = sender.lower()
-            source_info = f"from {source_village}"
-            status_message = f"{filename}: {source_info} {sender_lower} -> {destination_village} - {status} (Sender: {sender}, Receiver: {destination_user})"
-            print(status_message)  # Print the status message
-
-            cursor.execute('''
-                SELECT * FROM FileStatuses WHERE Filename = ?
-            ''', (filename_lower,))
-            existing_entry = cursor.fetchone()
-
-            if existing_entry:
-                # Entry exists, update only the Status field
-                cursor.execute('''
-                    UPDATE FileStatuses
-                    SET Status = ?
-                    WHERE Filename = ?
-                ''', (status, filename_lower))
-            else:
-                # Entry doesn't exist, insert a new row
-                cursor.execute('''
-                    INSERT INTO FileStatuses (Filename, SourceVillage, Sender, DestinationVillage, DestinationUser, Status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (filename_lower, source_village, sender, destination_village, destination_user, status))
-
-        else:
-            # Handle the case where the destination user is not found
-            print(
-                f"Destination user '{destination_user}' not found in UserAccounts table.")
-        conn.commit()
-        conn.close()
-
-    def get_status(line):
-        if "download" in line:
-            return "In Transit (Yellow)"
-        elif "upload" in line:
-            return "Delivered (Green)"
-        else:
-            return "Other (Gray)"
 
     with open(log_file_path, 'r') as log_file:
         import re
@@ -254,16 +263,11 @@ create_tables()
 log_file_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP\client.log'
 directory_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP'
 
-# Village A adds new users
-add_user_account("Alice", "villageB", "alice@email.com")
-add_user_account("Bob", "villageB", "bob@email.com")
 
-# Village B adds new users
-add_user_account("Jason", "villageA", "jason@email.com")
-add_user_account("Ellen", "villageA", "ellen@email.com")
-add_user_account("Ace", "villageA", "ace@email.com")
-
-add_user_account("Ken", "villageC", "ken@email.com")
+add_user_account("Yuva", "villageA", "alice@email.com")
+add_user_account("Martin", "villageB", "bob@email.com")
+add_user_account("Jason", "villageC", "jason@email.com")
+add_user_account("Inas", "villageD", "ellen@email.com")
 
 
 update_file_statuses(log_file_path, directory_path)
