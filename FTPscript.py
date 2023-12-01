@@ -6,6 +6,10 @@ import logging
 from playsound import playsound
 import sqlite3
 import math
+import uuid
+
+DATABASE_PATH = r'C:\Users\hyunj\OneDrive\Desktop\MVP\file-delivery.db'
+USERDB_PATH = r'C:\Users\hyunj\OneDrive\Desktop\MVP\user_info.db'
 
 beep1 = './assets/beep-01a.wav'
 beep2 = './assets/beep-05.wav'
@@ -32,26 +36,28 @@ current_ftp_server = None
 # Example FTP configurations (you can add more configurations)
 ftp_configs = [
     {
-        "network_name": 'eduroam',      # Yuva's
-        "ftp_server": '10.224.83.108',
+        "network_name": 'eduroam',      # yuva's
+        "ftp_server": '10.224.36.215',
         "username": 'villageA',
         "password": '1234',
         "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
     },
     {
-        "network_name": 'eduroam',      # martin's
-        "ftp_server": '10.226.86.119',
+        "network_name": 'eduroam',      # martins
+        "ftp_server": '10.226.35.149',
         "username": 'villageB',
         "password": '1234',
         "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
     },
     {
         "network_name": 'eduroam',      # inas'
-        "ftp_server": '10.226.93.56',
-        "username": 'villageD',
+        "ftp_server": '10.226.43.227',
+        "username": 'villageC',
         "password": '1234',
         "local_directory": r'C:\Users\hyunj\OneDrive\Desktop\MVP'
     }
+
+
     # {
     #     "network_name": 'Yoo',
     #     "ftp_server": '192.168.1.218',
@@ -74,7 +80,7 @@ def delete_files(ftp, downloaded_files, upload_files):
     print("######################## DELETING FILES ########################")
     for remote_filename in downloaded_files:
         print(remote_filename)
-        if remote_filename not in upload_files:
+        if remote_filename not in upload_files and not remote_filename.endswith(".db"):
             ftp.delete(remote_filename)
             print(f'Deleted {remote_filename} from the {ftp.host}')
 
@@ -103,7 +109,13 @@ def download_files(ftp, username, local_directory, downloaded_files, upload_file
     for remote_filename in file_list:
         if remote_filename not in downloaded_files and remote_filename not in upload_file_list:
             # Check the file extension and skip downloading log files
-            if not remote_filename.endswith('.log'):
+            if remote_filename == 'file-delivery.db':
+                # TO DO
+                # we are downloading
+                # we can compare, this remote_File.db username with truck.db username, join them together.
+                print("we are skipping file-delibery.db file")
+
+            elif not remote_filename.endswith('.log'):
                 local_filepath = os.path.join(local_directory, remote_filename)
                 with open(local_filepath, 'wb') as local_file:
                     ftp.retrbinary(f'RETR {remote_filename}', local_file.write)
@@ -124,13 +136,14 @@ def get_file_size(filename):
 
 
 def get_destination_village_from_db(dest_user):
-    conn = sqlite3.connect('file_delivery.db')
+    conn = sqlite3.connect(
+        r'C:\Users\hyunj\OneDrive\Desktop\MVP\file-delivery.db')
     cursor = conn.cursor()
 
     cursor.execute(
-        'SELECT Village FROM UserAccounts WHERE LOWER(Username) = ?', (dest_user.lower(),))
+        'SELECT Village FROM users WHERE LOWER(username) = ?', (dest_user.lower(),))
     result = cursor.fetchone()
-
+    print(result)
     conn.close()
 
     if result:
@@ -144,42 +157,83 @@ def upload_files_to_ftp(ftp, local_directory, upload_files, ftp_config, keep_fil
 
     # Check if there are files to upload before proceeding
     if local_files:
-        for local_filename in local_files:
-            if local_filename not in upload_files:
-                if not local_filename.endswith(".log"):
-                    local_filepath = os.path.join(
-                        local_directory, local_filename)
-                    dest_user = local_filename.split("_")[1]
-                    dest_user = dest_user.split(".")[0]
-                    dest_village = get_destination_village_from_db(dest_user)
+        try:
+            for local_filename in local_files:
+                if local_filename not in upload_files:
+                    if not local_filename.endswith(".log") and not local_filename.endswith(".db"):
+                        local_filepath = os.path.join(
+                            local_directory, local_filename)
 
-                    # Check if the file is meant for the current village
-                    if dest_village == ftp_config["username"]:
-                        with open(local_filepath, 'rb') as local_file:
-                            ftp.storbinary(
-                                f'STOR {local_filename}', local_file)
+                        dest_user = local_filename.split("_")[1]
+                        print("DESSSS USER ", dest_user)
+                        dest_village = get_destination_village_from_db(
+                            dest_user)
 
-                        file_size = get_file_size(local_filepath)
-                        # Log the action on the client
-                        log_message = f'From Truck {local_directory} upload {local_filename} {file_size}MB to {ftp_config["username"]} {ftp.host}'
-                        logging.info(log_message)
+                        # Check if the file is meant for the current village
+                        if dest_village == ftp_config["username"]:
+                            with open(local_filepath, 'rb') as local_file:
+                                ftp.storbinary(
+                                    f'STOR {local_filename}', local_file)
 
-                        print(
-                            f'Uploaded {local_filename} to the {ftp_config["username"]} {ftp_config["ftp_server"]}')
-                        upload_files.append((local_filename, dest_village))
-                    else:
-                        keep_files.append(local_filename)
-                        print(
-                            f'File {local_filename} is not meant for {ftp_config["username"]}. Skipping upload.')
+                            file_size = get_file_size(local_filepath)
+                            # Log the action on the client
+                            log_message = f'From Truck {local_directory} upload {local_filename} {file_size}MB to {ftp_config["username"]} {ftp.host}'
+                            logging.info(log_message)
 
+                            print(
+                                f'Uploaded {local_filename} to the {ftp_config["username"]} {ftp_config["ftp_server"]}')
+                            upload_files.append((local_filename, dest_village))
+
+                        else:
+                            keep_files.append(local_filename)
+                            print(
+                                f'File {local_filename} is not meant for {ftp_config["username"]}. Skipping upload.')
+        except Exception as e:
+            print(f"Error : {str(e)}")
         logging.shutdown()
     else:
         print("No files to upload.")
 
 
+def update_truckDatabase(source_file, destination_file):
+    # Connect to source and destination databases
+    source_conn = sqlite3.connect(source_file)
+    destination_conn = sqlite3.connect(destination_file)
+
+    # Create cursors
+    source_cursor = source_conn.cursor()
+    destination_cursor = destination_conn.cursor()
+
+    try:
+        # Fetch data from the source database
+        source_cursor.execute("SELECT * FROM users")
+        data_to_copy = source_cursor.fetchall()
+
+        # Insert or replace data into the destination database
+        destination_cursor.executemany('''
+            INSERT OR REPLACE INTO users (id, username, password, phone, village, active)
+            VALUES (
+                COALESCE((SELECT id FROM users WHERE username = ?), ?),
+                ?,
+                ?,
+                ?,
+                ?,
+                ?
+            )
+        ''', [(row[1], str(uuid.uuid4()), row[1], row[2], row[3], row[4], row[5]) for row in data_to_copy])
+
+        # Commit changes
+        destination_conn.commit()
+
+    finally:
+        # Close connections
+        source_conn.close()
+        destination_conn.close()
+
+
 def remove_files_local_directory(local_files, keep_files):
     for local_filename in local_files:
-        if not local_filename.endswith(".log"):
+        if not local_filename.endswith(".log") and not local_filename.endswith(".db"):
             if local_filename not in keep_files:
                 local_filepath = os.path.join(
                     r'C:\Users\hyunj\OneDrive\Desktop\MVP', local_filename)
@@ -201,6 +255,12 @@ def upload_log_files(ftp, local_directory):
                 logging.info(log_message)
 
                 print(f'Uploaded {local_filename} to the FTP server')
+            elif local_filename == 'file-delivery.db':
+                local_filepath = os.path.join(local_directory, local_filename)
+                with open(local_filepath, 'rb') as local_file:
+                    ftp.storbinary(f'STOR {local_filename}', local_file)
+                print("db.file upload", local_file)
+
         logging.shutdown()
 
     else:
@@ -215,8 +275,8 @@ def connect_to_ftp_server(ftp, ftp_config, downloaded_files, upload_files, keep_
 
     if is_connected_to_wifi_network(ftp_config["network_name"]):
         # connected to village
-        play_notification_sound(good_to_go)
         try:
+
             max_retries = 3
             retry_interval = 2
 
@@ -230,13 +290,17 @@ def connect_to_ftp_server(ftp, ftp_config, downloaded_files, upload_files, keep_
 
                     if current_ftp_server != ftp_config["ftp_server"]:
                         current_ftp_server = ftp_config["ftp_server"]
+                        play_notification_sound(good_to_go)
+
                         # Upload files to the FTP server
                         print(f"There are loads in Truck")
 
                         upload_files_to_ftp(
                             ftp, ftp_config["local_directory"], upload_files, ftp_config, keep_files)
-                        upload_log_files(ftp, ftp_config["local_directory"])
-                        remove_files_local_directory(local_files, keep_files)
+                        upload_log_files(
+                            ftp, ftp_config["local_directory"])
+                        remove_files_local_directory(
+                            local_files, keep_files)
 
                         print("Upload_files", upload_files)
                         print(
@@ -257,14 +321,14 @@ def connect_to_ftp_server(ftp, ftp_config, downloaded_files, upload_files, keep_
                         upload_files = []
                         current_ftp_server = ftp_config["ftp_server"]
 
-                    print(
-                        "#################################################################################################")
+                        print(
+                            "#################################################################################################")
 
-                    ftp.quit()
-                    # current_ftp_server = None
-                    play_notification_sound(no_files)
-                    play_notification_sound(no_files)
-                    break  # Break the loop if the connection and file check are successful
+                        ftp.quit()
+                        # current_ftp_server = None
+                        play_notification_sound(no_files)
+                        play_notification_sound(no_files)
+                        break  # Break the loop if the connection and file check are successful
                 except TimeoutError:
                     retry_count += 1
                     print(
@@ -295,12 +359,13 @@ while True:
         keep_files = []
 
         ftp = FTP()  # Create a new FTP instance for each village
+        subprocess.run(['python', python_script_path])
         connect_to_ftp_server(
             ftp, ftp_config, downloaded_files, upload_files, keep_files)
         # Run the status script to update FileStatuses
-        subprocess.run(['python', python_script_path])
+        update_truckDatabase(USERDB_PATH, DATABASE_PATH)
         # Truck driver takes a break before checking the next village
-        time.sleep(30)
+        time.sleep(15)
 
 
 # End of the while loop

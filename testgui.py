@@ -5,9 +5,46 @@ import hashlib
 import os
 import shutil
 import sqlite3
+import re
+import uuid
 
 
 class App:
+
+    def update_truckDatabase(self, source_file='file_delivery.db', destination_file='user_info.db'):
+        # Connect to source and destination databases
+        source_conn = sqlite3.connect(source_file)
+        destination_conn = sqlite3.connect(destination_file)
+
+        # Create cursors
+        source_cursor = source_conn.cursor()
+        destination_cursor = destination_conn.cursor()
+
+        try:
+            # Fetch data from the source database
+            source_cursor.execute("SELECT * FROM UserAccounts")
+            data_to_copy = source_cursor.fetchall()
+
+            # Insert or replace data into the destination database
+            destination_cursor.executemany('''
+                INSERT OR REPLACE INTO users (id, username, password, phone, village, active)
+                VALUES (
+                    COALESCE((SELECT id FROM users WHERE username = ?), ?),
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?
+                )
+            ''', [(row[1], str(uuid.uuid4()), row[1], row[2], row[3], row[4], row[5]) for row in data_to_copy])
+
+            # Commit changes
+            destination_conn.commit()
+
+        finally:
+            # Close connections
+            source_conn.close()
+            destination_conn.close()
 
     def load_login_info(self):
         self.connect_to_db()
@@ -21,9 +58,11 @@ class App:
         return login_info
 
     def connect_to_db(self):
-        self.conn = sqlite3.connect('user_info.db')
+        self.conn = sqlite3.connect(
+            r'C:\Users\hyunj\OneDrive\Desktop\FTP\user_info.db')
 
     def __init__(self, root):
+
         self.root = root
         self.root.title("File Storage App")
         self.connect_to_db()
@@ -57,9 +96,6 @@ class App:
         self.dropbox_frame = ttk.Frame(self.root, padding="10")
         self.create_dropbox_page()
 
-        # Load friend list from the JSON file
-        self.friend_list = self.load_friend_list()
-
         # Load uploaded files from the JSON file
         self.uploaded_files = self.load_uploaded_files()
 
@@ -74,18 +110,109 @@ class App:
         # Initially, show the login page
         self.show_login_page()
 
+        self.file_transfer_status_label = ttk.Label(
+            self.dropbox_frame, text="", background="white")
+        self.file_transfer_status_label.grid(
+            row=5, column=0, columnspan=2, pady=5)
+
+        # Add a listbox for file statuses
+        self.file_status_listbox = tk.Listbox(self.dropbox_frame, height=10)
+        self.file_status_listbox.grid(
+            row=7, column=0, columnspan=2, padx=20, sticky=(tk.W, tk.E))
+
+        # Add a button to refresh file statuses
+        self.refresh_status_button = ttk.Button(
+            self.dropbox_frame, text="Refresh Statuses", command=self.refresh_file_statuses)
+        self.refresh_status_button.grid(row=8, column=0, columnspan=2, pady=5)
+
+    def get_file_statuses(self, log_file_path, directory_path):
+        file_statuses = {}
+
+        def update_file_status(filename, status):
+            file_statuses[filename] = status
+
+        def get_status(line):
+            if "download" in line:
+                return "In Transit (Yellow)"
+            elif "upload" in line:
+                return "Delivered (Green)"
+            else:
+                return "Other (Gray)"
+
+        # Read log file and update statuses
+        with open(log_file_path, 'r') as log_file:
+            download_pattern = re.compile(r"download (.+?) to")
+            upload_pattern = re.compile(r"upload (.+?) to")
+
+            for line in log_file:
+                if ".log" in line:
+                    continue
+
+                status = get_status(line)
+                download_match = download_pattern.search(line)
+                upload_match = upload_pattern.search(line)
+
+                if download_match:
+                    filename = download_match.group(1)
+                elif upload_match:
+                    filename = upload_match.group(1)
+                else:
+                    continue
+
+                update_file_status(filename, status)
+
+        # List files in the directory
+        files_in_directory = [f for f in os.listdir(
+            directory_path) if os.path.isfile(os.path.join(directory_path, f))]
+
+        # Compare and update file statuses
+        for file in files_in_directory:
+            if file not in file_statuses:
+                file_statuses[file] = "Not in Log (Gray)"
+
+        return file_statuses
+
+    def refresh_file_statuses(self):
+        # Clear the current list
+        self.file_status_listbox.delete(0, tk.END)
+
+        # Define the paths for the log file and directory
+        log_file_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP\client.log'
+        directory_path = r'C:\Users\hyunj\OneDrive\Desktop\MVP'
+
+        # Get the file statuses
+        status_dict = self.get_file_statuses(log_file_path, directory_path)
+
+        # Update the listbox with new statuses
+        for filename, status in status_dict.items():
+            self.file_status_listbox.insert(tk.END, f"{filename}: {status}")
+
     def create_users_table(self):
         # Create a table if it doesn't exist
         self.connect_to_db()
         cursor = self.conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                username TEXT PRIMARY KEY,
+                id TEXT PRIMARY KEY,
+                username TEXT,
                 password TEXT,
                 phone TEXT,
-                address TEXT
+                village TEXT,
+                active INTEGER
             )
         ''')
+
+        # Create the friends table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS friends (
+                user_id INTEGER,
+                friend_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (friend_id) REFERENCES users (id),
+                PRIMARY KEY (user_id, friend_id)
+            )
+        ''')
+
         self.conn.commit()
         self.conn.close()
 
@@ -213,9 +340,11 @@ class App:
             self.dropbox_frame, text="Delete Account", command=self.confirm_delete_account)
         self.logout_button = ttk.Button(
             self.dropbox_frame, text="Log Out", command=self.log_out)
+        self.update_db_button = ttk.Button(
+            self.dropbox_frame, text="Update_db", command=self.update_truckDatabase)
 
         self.dropbox_frame.columnconfigure(0, weight=1)
-        for i in range(9):
+        for i in range(10):
             self.dropbox_frame.rowconfigure(i, weight=1)
 
         padding_x = 20
@@ -238,6 +367,8 @@ class App:
         self.delete_account_button.grid(
             row=8, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
         self.logout_button.grid(
+            row=9, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
+        self.update_db_button.grid(
             row=9, column=0, columnspan=2, pady=padding_y, padx=padding_x, sticky=tk.E)
 
     def log_out(self):
@@ -267,29 +398,86 @@ class App:
         current_user = self.current_user
         self.connect_to_db()
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM users WHERE username = ?", (current_user,))
+
+        # Set the active column to 0 (inactive) for the deleted account
+        cursor.execute(
+            "UPDATE users SET active = 0 WHERE username = ?", (current_user,))
+
+        # Commit the update
         self.conn.commit()
 
         # After deleting the account, navigate back to the login page
         self.show_login_page()
+
         # Destroy the confirmation window
         confirmation_window.destroy()
+
         self.conn.close()
 
+    def get_user_id(self, username):
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+
+        # Retrieve the user_id for the given username
+        cursor.execute('''
+            SELECT id
+            FROM users
+            WHERE username = ?
+        ''', (username,))
+
+        user_id = cursor.fetchone()
+
+        self.conn.close()
+
+        return user_id[0] if user_id else None
+
     def add_friend(self):
-        new_friend = self.new_friend_entry.get()
-        if new_friend and new_friend not in self.friend_list:
-            if self.current_user not in self.friend_list:
-                self.friend_list[self.current_user] = []
-            self.friend_list[self.current_user].append(new_friend)
-            self.save_friend_list()
-            self.populate_friend_listbox()
-            self.new_friend_entry.delete(0, tk.END)
-        else:
-            error_label = ttk.Label(
-                self.friend_list_frame, text="Invalid friend name", foreground="red")
-            error_label.grid(row=4, column=1, columnspan=2, pady=5)
-            self.friend_list_frame.after(2000, error_label.grid_forget)
+        # Get the selected friend from the listbox
+        selected_friend = self.user_listbox.get(tk.ACTIVE)
+
+        if selected_friend:
+            # Get the user_id for the current user (replace with your logic)
+            current_user_id = self.get_user_id(self.current_user)
+
+            # Get the friend_id for the selected friend (replace with your logic)
+            friend_id = self.get_user_id(selected_friend)
+
+            # Call the add_friend function
+            self.add_friend_to_database(self.current_user, selected_friend)
+            if selected_friend not in self.friend_list:
+                self.friend_list.append(selected_friend)
+        self.populate_user_list()
+
+    def add_friend_to_database(self, current_username, friend_username):
+        # Check if the friendship already exists
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+
+        cursor.execute('''
+            SELECT 1
+            FROM friends f
+            JOIN users u1 ON f.user_id = u1.id
+            JOIN users u2 ON f.friend_id = u2.id
+            WHERE (u1.username = ? AND u2.username = ?) OR (u1.username = ? AND u2.username = ?)
+        ''', (current_username, friend_username, friend_username, current_username))
+
+        existing_friendship = cursor.fetchone()
+
+        if not existing_friendship:
+            # Add the friendship to the friends table
+            cursor.execute('''
+                INSERT INTO friends (user_id, friend_id)
+                VALUES (
+                    (SELECT username FROM users WHERE username = ?),
+                    (SELECT username FROM users WHERE username = ?)
+                ),
+                (
+                    (SELECT username FROM users WHERE username = ?),
+                    (SELECT username FROM users WHERE username = ?)
+                )
+            ''', (current_username, friend_username, friend_username, current_username))
+
+        self.conn.commit()
 
     def create_friend_list_page(self):
         self.friend_list_frame.grid(
@@ -300,15 +488,16 @@ class App:
 
         self.welcome_label_friends = ttk.Label(
             self.friend_list_frame, text="Your Friend List", font=("Helvetica", 16))
-        self.friend_listbox = tk.Listbox(
+        self.user_listbox = tk.Listbox(
             self.friend_list_frame, selectmode=tk.SINGLE, height=10)
-        self.new_friend_label = ttk.Label(
-            self.friend_list_frame, text="New Friend:")
-        self.new_friend_entry = ttk.Entry(self.friend_list_frame)
         self.add_friend_button = ttk.Button(
             self.friend_list_frame, text="Add Friend", command=self.add_friend)
         self.back_to_dropbox_button = ttk.Button(
             self.friend_list_frame, text="Back to Dropbox", command=self.show_dropbox_page)
+
+        # # Configure tags for user listbox
+        # self.user_listbox.tag_configure("green", foreground="green")
+        # self.user_listbox.tag_configure("red", foreground="red")
 
         self.friend_list_frame.columnconfigure(0, weight=1)
         for i in range(6):
@@ -318,14 +507,10 @@ class App:
 
         self.welcome_label_friends.grid(
             row=0, column=0, columnspan=2, pady=10, padx=padding_x, sticky=tk.W + tk.E)
-        self.friend_listbox.grid(
+        self.user_listbox.grid(
             row=1, column=0, columnspan=2, pady=5, padx=padding_x, sticky=(tk.W, tk.E))
-        self.new_friend_label.grid(
-            row=2, column=0, sticky=tk.W, pady=5, padx=padding_x)
-        self.new_friend_entry.grid(
-            row=2, column=1, sticky=(tk.W, tk.E), pady=5, padx=padding_x)
         self.add_friend_button.grid(
-            row=3, column=1, sticky=tk.E, pady=5, padx=padding_x)
+            row=2, column=1, sticky=tk.E, pady=5, padx=padding_x)
         self.back_to_dropbox_button.grid(
             row=5, column=0, columnspan=2, pady=10, padx=padding_x, sticky=tk.W + tk.E)
 
@@ -361,18 +546,30 @@ class App:
             row=5, column=0, columnspan=2, pady=10, padx=padding_x, sticky=tk.W + tk.E)
 
     def load_friend_list(self):
-        try:
-            with open("friend_list.json", "r") as file:
-                return json.load(file)
-        except FileNotFoundError:
-            return {}
+
+        self.connect_to_db()
+        cursor = self.conn.cursor()
+        # Retrieve friend list for the current user from the database
+        cursor.execute('''
+            SELECT u.username
+            FROM friends f
+            JOIN users u ON f.friend_id = u.username
+            WHERE f.user_id = ? 
+        ''', (self.current_user,))
+
+        friend_list = [row[0] for row in cursor.fetchall()]
+
+        print("Loading friend_list ", friend_list)
+        self.conn.close()
+
+        return friend_list
 
     def save_login_info(self):
         return self.current_user
 
-    def save_friend_list(self):
-        with open("friend_list.json", "w") as file:
-            json.dump(self.friend_list, file, indent=2)
+    # def save_friend_list(self):
+    #     with open("friend_list.json", "w") as file:
+    #         json.dump(self.friend_list, file, indent=2)
 
     def show_login_page(self):
         self.dropbox_frame.grid_remove()
@@ -401,7 +598,7 @@ class App:
         self.registration_frame.grid_remove()
         self.dropbox_frame.grid_remove()
         self.friend_list_frame.grid()
-        self.populate_friend_listbox()
+        self.populate_user_list()
 
     def show_download_files_page(self):
         self.login_frame.grid_remove()
@@ -417,21 +614,14 @@ class App:
         self.dropbox_frame.grid_remove()
         self.friend_list_frame.grid_remove()
 
-    def populate_user_list(self):
-        # Replace this with your logic to fetch and populate the user list
-        user_list = ["User1", "User2", "User3", "User4"]
-        for user in user_list:
-            self.user_listbox.insert(tk.END, user)
-
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
-        print("self.login_info", self.login_info.get(username))
         # Check if the username exists and the password is correct
         if username in self.login_info and self.verify_password(password, self.login_info.get(username)):
             self.current_user = username
-            if username not in self.friend_list:
-                self.friend_list[username] = []
+            # if username not in self.friend_list:
+            #     self.friend_list[username] = []
             self.show_dropbox_page()
         else:
             # For simplicity, just show an error message here
@@ -439,6 +629,8 @@ class App:
                 self.login_frame, text="Invalid username or password", foreground="red")
             error_label.grid(row=4, column=1, columnspan=2, pady=5)
             self.login_frame.after(2000, error_label.grid_forget)
+        # Load friend list from the JSON file
+        self.friend_list = self.load_friend_list()
 
         self.username_entry.delete(0, tk.END)
         self.password_entry.delete(0, tk.END)
@@ -449,8 +641,8 @@ class App:
             plain_password.encode()).hexdigest()
 
         # Print the hashed input password and stored hashed password for debugging
-        print("Hashed Input Password:", hashed_input_password)
-        print("Stored Hashed Password:", stored_info)
+        # print("Hashed Input Password:", hashed_input_password)
+        # print("Stored Hashed Password:", stored_info)
 
         # Compare the hashed input password with the stored hashed password
         return hashed_input_password == stored_info
@@ -473,10 +665,10 @@ class App:
             hashed_password = hashlib.sha256(new_password.encode()).hexdigest()
 
             # Insert user data into the database
+            random_id = str(uuid.uuid4())  # Generate a random UUID
             cursor.execute('''
-                INSERT INTO users (username, password, phone, address)
-                VALUES (?, ?, ?, ?)
-            ''', (new_username, hashed_password, phone_number, address))
+                INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)
+            ''', (random_id, new_username, hashed_password, phone_number, address, 1))
 
             self.conn.commit()
             self.show_login_page()
@@ -568,7 +760,7 @@ class App:
         selected_friend_var = tk.StringVar()
 
         friend_combobox = ttk.Combobox(
-            self.dropbox_frame, values=list(self.friend_list[self.current_user]), textvariable=selected_friend_var, state="readonly")
+            self.dropbox_frame, values=list(self.friend_list), textvariable=selected_friend_var, state="readonly")
         friend_combobox.set("Select a Friend")
         friend_combobox.grid(row=3, column=0, columnspan=2, pady=5)
 
@@ -616,12 +808,30 @@ class App:
         # TODO: Add logic to fetch received files and populate the listbox
         pass
 
-    def populate_friend_listbox(self):
-        self.friend_listbox.delete(0, tk.END)
-        if self.current_user not in self.friend_list:
-            return
-        for friend in self.friend_list[self.current_user]:
-            self.friend_listbox.insert(tk.END, friend)
+    def populate_user_list(self):
+        # Replace this with your logic to fetch and populate the user list
+        self.user_listbox.delete(0, tk.END)
+
+        self.connect_to_db()
+        # Fetch all user accounts from the database
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT username FROM users")
+        all_users = [user[0] for user in cursor.fetchall()]
+
+        friend_list = self.friend_list
+        print("friend_list", friend_list)
+        cursor.close()
+
+        # Populate the user_listbox with all users
+        for user in all_users:
+            if user != self.current_user:
+                # Check if the user is a friend
+                if user in friend_list:
+                    self.user_listbox.insert(tk.END, user)
+                    self.user_listbox.itemconfig(tk.END, foreground="green")
+                else:
+                    self.user_listbox.insert(tk.END, user)
+                    self.user_listbox.itemconfig(tk.END, foreground="red")
 
 
 if __name__ == "__main__":
